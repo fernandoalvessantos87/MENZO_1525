@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Fraunces", serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+/* Fundo escuro com o logo em marca d'água, fixo atrás do conteúdo */
+body {
+  position: relative;
+  background-color: #07090B;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image: url("/logo-menzo.png");
+  background-repeat: no-repeat;
+  background-position: center 18%;
+  background-size: min(38vw, 340px);
+  opacity: 0.07;
+  pointer-events: none;
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stamp {
+    animation: stamp-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes stamp-in {
+  from {
+    transform: scale(1.4) rotate(-8deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(-4deg);
+    opacity: 1;
+  }
+}
+
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
+  transform: rotate(-4deg);
+}
+
+input,
+select {
+  background: #12171A;
+  color: #EDEFEF;
+  border: 1px solid #1F2A2C;
+  border-radius: 6px;
+  padding: 0.55rem 0.7rem;
+  font-family: var(--font-body);
+  width: 100%;
+}
+
+input::placeholder {
+  color: #5E6C6E;
+}
+
+input:focus,
+select:focus {
+  outline: 2px solid #2FC9BC;
+  outline-offset: 1px;
+}
+
+button {
+  font-family: var(--font-body);
+}
