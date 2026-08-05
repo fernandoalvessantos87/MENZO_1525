@@ -1,5 +1,9 @@
 # Menzo
 
+> Projeto pessoal desenvolvido por **Fernando Alves Santos**, disponibilizado
+> aqui apenas para fins de demonstração/portfólio. Código sob todos os
+> direitos reservados — ver [`LICENSE`](./LICENSE).
+
 App pessoal de controle financeiro — contas, cartão de crédito e gastos do
 dia a dia, organizados por categoria, com login próprio e dados salvos na
 nuvem (Supabase).
