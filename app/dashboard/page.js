@@ -192,6 +192,24 @@ export default function Dashboard() {
   const [reembolsoAberto, setReembolsoAberto] = useState(false);
   const inputsRef = useRef({});
 
+  // --- Receitas ---
+  const [receitas, setReceitas] = useState([]);
+  const [receitasAberto, setReceitasAberto] = useState(true);
+  const [edicaoReceitaId, setEdicaoReceitaId] = useState(null); // id existente, ou "novo_<tipo>" pra criar
+  const [formReceita, setFormReceita] = useState({ nome: "", valor: "" });
+  const [salvandoReceita, setSalvandoReceita] = useState(false);
+
+  // --- Reembolso (adicionar/editar/excluir) ---
+  const [formReembolsoAberto, setFormReembolsoAberto] = useState(false);
+  const [edicaoReembolsoId, setEdicaoReembolsoId] = useState(null);
+  const [formReembolso, setFormReembolso] = useState({
+    cartao_id: "",
+    descricao: "",
+    valor: "",
+    data_compra: new Date().toISOString().slice(0, 10),
+  });
+  const [salvandoReembolso, setSalvandoReembolso] = useState(false);
+
   const [gruposAbertos, setGruposAbertos] = useState({
     rotativas: false,
     fixas: false,
@@ -234,6 +252,15 @@ export default function Dashboard() {
 
     setContas(contasSemCartoes);
     setPagamentos(pagamentosData ?? []);
+
+    const { data: receitasData } = await supabase
+      .from("receitas")
+      .select("*")
+      .eq("mes", mes)
+      .eq("ano", ano)
+      .order("criado_em", { ascending: true });
+
+    setReceitas(receitasData ?? []);
 
     if (idsCartoes.length > 0) {
       const { data: gastosCartaoData } = await supabase
@@ -400,6 +427,141 @@ export default function Dashboard() {
     router.replace("/login");
   }
 
+  // --- Receitas ---
+
+  function iniciarEdicaoReceita(receita, tipo, nomePadrao) {
+    if (receita) {
+      setEdicaoReceitaId(receita.id);
+      setFormReceita({ nome: receita.nome, valor: String(receita.valor ?? "") });
+    } else {
+      setEdicaoReceitaId(`novo_${tipo}`);
+      setFormReceita({ nome: nomePadrao, valor: "" });
+    }
+  }
+
+  function cancelarEdicaoReceita() {
+    setEdicaoReceitaId(null);
+  }
+
+  async function salvarReceita(tipo) {
+    if (!formReceita.nome.trim() || !formReceita.valor) {
+      alert("Preencha o nome e o valor.");
+      return;
+    }
+    setSalvandoReceita(true);
+
+    const payload = {
+      usuario_id: usuario.id,
+      tipo,
+      nome: formReceita.nome.trim(),
+      valor: parseFloat(String(formReceita.valor).replace(",", ".")),
+      mes,
+      ano,
+    };
+
+    const ehNova = String(edicaoReceitaId).startsWith("novo_");
+    const { error } = ehNova
+      ? await supabase.from("receitas").insert(payload)
+      : await supabase.from("receitas").update(payload).eq("id", edicaoReceitaId);
+
+    setSalvandoReceita(false);
+
+    if (error) {
+      alert("Erro ao salvar a receita: " + error.message);
+      return;
+    }
+
+    setEdicaoReceitaId(null);
+    carregarDados();
+  }
+
+  async function excluirReceita(receita) {
+    const confirmar = window.confirm(`Excluir a receita "${receita.nome}"?`);
+    if (!confirmar) return;
+
+    const { error } = await supabase.from("receitas").delete().eq("id", receita.id);
+    if (error) {
+      alert("Erro ao excluir: " + error.message);
+      return;
+    }
+    carregarDados();
+  }
+
+  // --- Reembolso ---
+
+  function abrirNovoReembolso() {
+    const primeiroCartaoId = Object.keys(cartoesPorId)[0] ?? "";
+    setEdicaoReembolsoId(null);
+    setFormReembolso({
+      cartao_id: primeiroCartaoId,
+      descricao: "",
+      valor: "",
+      data_compra: new Date().toISOString().slice(0, 10),
+    });
+    setFormReembolsoAberto(true);
+  }
+
+  function iniciarEdicaoReembolso(item) {
+    setEdicaoReembolsoId(item.id);
+    setFormReembolso({
+      cartao_id: item.cartao_id,
+      descricao: item.descricao ?? "",
+      valor: String(item.valor ?? ""),
+      data_compra: item.data_compra ?? new Date().toISOString().slice(0, 10),
+    });
+    setFormReembolsoAberto(true);
+  }
+
+  function cancelarFormReembolso() {
+    setFormReembolsoAberto(false);
+    setEdicaoReembolsoId(null);
+  }
+
+  async function salvarReembolso() {
+    if (!formReembolso.cartao_id || !formReembolso.descricao.trim() || !formReembolso.valor) {
+      alert("Escolha o cartão e preencha a descrição e o valor.");
+      return;
+    }
+    setSalvandoReembolso(true);
+
+    const payload = {
+      cartao_id: formReembolso.cartao_id,
+      descricao: formReembolso.descricao.trim(),
+      valor: parseFloat(String(formReembolso.valor).replace(",", ".")),
+      categoria: "Reembolso",
+      data_compra: formReembolso.data_compra,
+      fatura_mes: mes,
+      fatura_ano: ano,
+    };
+
+    const { error } = edicaoReembolsoId
+      ? await supabase.from("gastos_cartao").update(payload).eq("id", edicaoReembolsoId)
+      : await supabase.from("gastos_cartao").insert(payload);
+
+    setSalvandoReembolso(false);
+
+    if (error) {
+      alert("Erro ao salvar o reembolso: " + error.message);
+      return;
+    }
+
+    setFormReembolsoAberto(false);
+    setEdicaoReembolsoId(null);
+    carregarDados();
+  }
+
+  async function excluirReembolso(item) {
+    const confirmar = window.confirm(`Excluir o reembolso "${item.descricao}"?`);
+    if (!confirmar) return;
+
+    const { error } = await supabase.from("gastos_cartao").delete().eq("id", item.id);
+    if (error) {
+      alert("Erro ao excluir: " + error.message);
+      return;
+    }
+    carregarDados();
+  }
+
   const linhas = contas.map((conta) => {
     const pagamento = pagamentos.find((p) => p.conta_id === conta.id);
     const status = calcularStatus(conta.dia_vencimento, mes, ano, pagamento);
@@ -524,8 +686,23 @@ export default function Dashboard() {
   // fatura do cartão (app/cartao), mas fica de fora do total de gastos
   // do dashboard — por isso é retirado daqui antes de alimentar o
   // gráfico de rosca, e mostrado à parte, só como informação.
-  const categoriaReembolso = totaisPorCategoria.find((d) => d.categoria === "Reembolso") ?? null;
   const totaisParaGrafico = totaisPorCategoria.filter((d) => d.categoria !== "Reembolso");
+
+  // Itens de reembolso com os dados brutos (id, cartao_id) do gasto no
+  // cartão, pra dar pra editar e excluir direto aqui no dashboard.
+  const reembolsos = gastosCartaoDetalhado.filter((g) => g.categoria === "Reembolso");
+  const totalReembolsos = reembolsos.reduce((soma, g) => soma + Number(g.valor ?? 0), 0);
+
+  // Receitas do mês: fixa (titular), fixa (outra) e variáveis (afiliados
+  // etc, podem ter vários itens no mesmo mês).
+  const receitaTitular = receitas.find((r) => r.tipo === "fixa_titular") ?? null;
+  const receitaOutra = receitas.find((r) => r.tipo === "fixa_outra") ?? null;
+  const receitasVariaveis = receitas.filter((r) => r.tipo === "variavel");
+  const totalReceitas =
+    Number(receitaTitular?.valor ?? 0) +
+    Number(receitaOutra?.valor ?? 0) +
+    receitasVariaveis.reduce((soma, r) => soma + Number(r.valor ?? 0), 0);
+  const saldoPrevisto = totalReceitas - total;
 
   function mudarMes(delta) {
     let novoMes = mes + delta;
@@ -790,6 +967,19 @@ export default function Dashboard() {
         </button>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="bg-surface border border-border rounded-lg p-3">
+          <p className="text-xs text-ink-soft mb-1">Receita do mes</p>
+          <p className="font-display text-xl text-lime">{formatarMoeda(totalReceitas)}</p>
+        </div>
+        <div className="bg-surface border border-border rounded-lg p-3">
+          <p className="text-xs text-ink-soft mb-1">Saldo previsto</p>
+          <p className={`font-display text-xl ${saldoPrevisto >= 0 ? "text-ledger" : "text-stamp-red"}`}>
+            {formatarMoeda(saldoPrevisto)}
+          </p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="bg-surface border border-border rounded-lg p-3">
           <p className="text-xs text-ink-soft mb-1">Total do mes</p>
@@ -808,6 +998,241 @@ export default function Dashboard() {
           <p className="font-display text-xl text-stamp-red">{contagem.vencido}</p>
         </div>
       </div>
+
+      {!carregando && (
+        <div className="mb-6 bg-surface border border-border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setReceitasAberto((a) => !a)}
+            aria-expanded={receitasAberto}
+            className="w-full flex items-center justify-between gap-3 px-4 py-4 text-left hover:bg-surface-soft transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-ink-soft">
+                <IconeChevron aberto={receitasAberto} />
+              </span>
+              <p className="font-display text-lg leading-tight">Receitas</p>
+            </div>
+            <p className="text-sm font-medium text-lime">{formatarMoeda(totalReceitas)}</p>
+          </button>
+
+          {receitasAberto && (
+            <div className="border-t border-border divide-y divide-border">
+              {/* Receita fixa: Titular */}
+              <div className="px-4 py-3">
+                {edicaoReceitaId === receitaTitular?.id || edicaoReceitaId === "novo_fixa_titular" ? (
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text"
+                      value={formReceita.nome}
+                      onChange={(e) => setFormReceita({ ...formReceita, nome: e.target.value })}
+                      placeholder="Nome (ex: Vendas de carros)"
+                      className="text-sm"
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formReceita.valor}
+                      onChange={(e) => setFormReceita({ ...formReceita, valor: e.target.value })}
+                      placeholder="Lucro do mes no Veloxis"
+                      className="text-sm"
+                    />
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => salvarReceita("fixa_titular")}
+                        disabled={salvandoReceita}
+                        className="text-xs text-ledger underline"
+                      >
+                        {salvandoReceita ? "Salvando..." : "Salvar"}
+                      </button>
+                      <button onClick={cancelarEdicaoReceita} className="text-xs text-ink-soft underline">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{receitaTitular?.nome ?? "Vendas de carros"}</p>
+                      <p className="text-xs text-ink-soft">
+                        Receita fixa · Titular · fecha no ultimo dia do mes no Veloxis
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <p className="text-sm font-medium">{formatarMoeda(receitaTitular?.valor ?? 0)}</p>
+                      <button
+                        onClick={() =>
+                          iniciarEdicaoReceita(receitaTitular, "fixa_titular", "Vendas de carros")
+                        }
+                        className="text-xs text-ledger underline"
+                      >
+                        editar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Receita fixa: Outra */}
+              <div className="px-4 py-3">
+                {edicaoReceitaId === receitaOutra?.id || edicaoReceitaId === "novo_fixa_outra" ? (
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="text"
+                      value={formReceita.nome}
+                      onChange={(e) => setFormReceita({ ...formReceita, nome: e.target.value })}
+                      placeholder="Nome (ex: Salario da esposa)"
+                      className="text-sm"
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formReceita.valor}
+                      onChange={(e) => setFormReceita({ ...formReceita, valor: e.target.value })}
+                      placeholder="Valor recebido"
+                      className="text-sm"
+                    />
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => salvarReceita("fixa_outra")}
+                        disabled={salvandoReceita}
+                        className="text-xs text-ledger underline"
+                      >
+                        {salvandoReceita ? "Salvando..." : "Salvar"}
+                      </button>
+                      <button onClick={cancelarEdicaoReceita} className="text-xs text-ink-soft underline">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{receitaOutra?.nome ?? "Salario da esposa"}</p>
+                      <p className="text-xs text-ink-soft">Receita fixa · Outra · recebida todo dia 05</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <p className="text-sm font-medium">{formatarMoeda(receitaOutra?.valor ?? 0)}</p>
+                      <button
+                        onClick={() => iniciarEdicaoReceita(receitaOutra, "fixa_outra", "Salario da esposa")}
+                        className="text-xs text-ledger underline"
+                      >
+                        editar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Receitas variaveis */}
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-sm font-medium">Receitas variaveis</p>
+                  <p className="text-sm font-medium">
+                    {formatarMoeda(receitasVariaveis.reduce((s, r) => s + Number(r.valor ?? 0), 0))}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {receitasVariaveis.map((r) =>
+                    edicaoReceitaId === r.id ? (
+                      <div key={r.id} className="flex flex-col gap-2 border-l border-border pl-3">
+                        <input
+                          type="text"
+                          value={formReceita.nome}
+                          onChange={(e) => setFormReceita({ ...formReceita, nome: e.target.value })}
+                          placeholder="Ex: Mercado Livre"
+                          className="text-sm"
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={formReceita.valor}
+                          onChange={(e) => setFormReceita({ ...formReceita, valor: e.target.value })}
+                          placeholder="Valor"
+                          className="text-sm"
+                        />
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => salvarReceita("variavel")}
+                            disabled={salvandoReceita}
+                            className="text-xs text-ledger underline"
+                          >
+                            {salvandoReceita ? "Salvando..." : "Salvar"}
+                          </button>
+                          <button onClick={cancelarEdicaoReceita} className="text-xs text-ink-soft underline">
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        key={r.id}
+                        className="flex items-center justify-between gap-2 border-l border-border pl-3"
+                      >
+                        <p className="text-xs">{r.nome}</p>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <p className="text-xs font-medium">{formatarMoeda(r.valor)}</p>
+                          <button
+                            onClick={() => iniciarEdicaoReceita(r, "variavel", r.nome)}
+                            className="text-[11px] text-ledger underline"
+                          >
+                            editar
+                          </button>
+                          <button
+                            onClick={() => excluirReceita(r)}
+                            className="text-[11px] text-stamp-red underline"
+                          >
+                            excluir
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {edicaoReceitaId === "novo_variavel" ? (
+                    <div className="flex flex-col gap-2 border-l border-border pl-3">
+                      <input
+                        type="text"
+                        value={formReceita.nome}
+                        onChange={(e) => setFormReceita({ ...formReceita, nome: e.target.value })}
+                        placeholder="Ex: Mercado Livre, Amazon, Magalu"
+                        className="text-sm"
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={formReceita.valor}
+                        onChange={(e) => setFormReceita({ ...formReceita, valor: e.target.value })}
+                        placeholder="Valor"
+                        className="text-sm"
+                      />
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => salvarReceita("variavel")}
+                          disabled={salvandoReceita}
+                          className="text-xs text-ledger underline"
+                        >
+                          {salvandoReceita ? "Salvando..." : "Salvar"}
+                        </button>
+                        <button onClick={cancelarEdicaoReceita} className="text-xs text-ink-soft underline">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => iniciarEdicaoReceita(null, "variavel", "")}
+                      className="text-xs text-ledger underline text-left"
+                    >
+                      + nova receita variavel
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {!carregando && totaisParaGrafico.length > 0 && (
         <div className="mb-6 bg-surface border border-border rounded-lg overflow-hidden">
@@ -837,7 +1262,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!carregando && categoriaReembolso && (
+      {!carregando && Object.keys(cartoesPorId).length > 0 && (
         <div className="mb-6 bg-surface border border-dashed border-border rounded-lg overflow-hidden">
           <button
             type="button"
@@ -854,20 +1279,98 @@ export default function Dashboard() {
                 <p className="text-[11px] text-ink-soft">Não entra no total de gastos acima</p>
               </div>
             </div>
-            <p className="text-sm font-medium">{formatarMoeda(categoriaReembolso.valor)}</p>
+            <p className="text-sm font-medium">{formatarMoeda(totalReembolsos)}</p>
           </button>
 
           {reembolsoAberto && (
-            <div className="border-t border-border p-4 flex flex-col gap-2">
-              {categoriaReembolso.itens.map((item, j) => (
-                <div key={j} className="flex items-center justify-between gap-2 text-sm">
-                  <div className="min-w-0">
-                    <p className="text-ink break-words">{item.nome}</p>
-                    <p className="text-[11px] text-ink-soft">{item.subtitulo}</p>
+            <div className="border-t border-border p-4 flex flex-col gap-3">
+              {reembolsos.length === 0 && !formReembolsoAberto && (
+                <p className="text-sm text-ink-soft">Nenhum reembolso lançado neste mês.</p>
+              )}
+
+              {reembolsos.map((item) =>
+                edicaoReembolsoId === item.id && formReembolsoAberto ? null : (
+                  <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-ink break-words">{item.descricao}</p>
+                      <p className="text-[11px] text-ink-soft">
+                        {new Date(item.data_compra + "T00:00:00").toLocaleDateString("pt-BR")} ·{" "}
+                        {cartoesPorId[item.cartao_id]?.nome ?? "Cartão"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <p className="font-medium">{formatarMoeda(item.valor)}</p>
+                      <button
+                        onClick={() => iniciarEdicaoReembolso(item)}
+                        className="text-[11px] text-ledger underline"
+                      >
+                        editar
+                      </button>
+                      <button
+                        onClick={() => excluirReembolso(item)}
+                        className="text-[11px] text-stamp-red underline"
+                      >
+                        excluir
+                      </button>
+                    </div>
                   </div>
-                  <p className="font-medium shrink-0">{formatarMoeda(item.valor)}</p>
+                )
+              )}
+
+              {formReembolsoAberto ? (
+                <div className="flex flex-col gap-2 border-t border-border pt-3">
+                  <select
+                    value={formReembolso.cartao_id}
+                    onChange={(e) => setFormReembolso({ ...formReembolso, cartao_id: e.target.value })}
+                    className="text-sm"
+                  >
+                    {Object.values(cartoesPorId).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={formReembolso.descricao}
+                    onChange={(e) => setFormReembolso({ ...formReembolso, descricao: e.target.value })}
+                    placeholder="Descricao (ex: Almoço - amigo pagou no Pix)"
+                    className="text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formReembolso.valor}
+                      onChange={(e) => setFormReembolso({ ...formReembolso, valor: e.target.value })}
+                      placeholder="Valor"
+                      className="w-1/2 text-sm"
+                    />
+                    <input
+                      type="date"
+                      value={formReembolso.data_compra}
+                      onChange={(e) => setFormReembolso({ ...formReembolso, data_compra: e.target.value })}
+                      className="w-1/2 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-1">
+                    <button
+                      onClick={salvarReembolso}
+                      disabled={salvandoReembolso}
+                      className="text-xs text-ledger underline"
+                    >
+                      {salvandoReembolso ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button onClick={cancelarFormReembolso} className="text-xs text-ink-soft underline">
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
-              ))}
+              ) : (
+                <button onClick={abrirNovoReembolso} className="text-xs text-ledger underline text-left">
+                  + adicionar reembolso
+                </button>
+              )}
             </div>
           )}
         </div>
