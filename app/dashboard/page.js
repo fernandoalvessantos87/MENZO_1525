@@ -450,8 +450,18 @@ export default function Dashboard() {
     }
     setSalvandoReceita(true);
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setSalvandoReceita(false);
+      alert("Sessão expirada. Atualize a página e faça login novamente.");
+      return;
+    }
+
     const payload = {
-      usuario_id: usuario.id,
+      usuario_id: user.id,
       tipo,
       nome: formReceita.nome.trim(),
       valor: parseFloat(String(formReceita.valor).replace(",", ".")),
@@ -524,14 +534,23 @@ export default function Dashboard() {
     }
     setSalvandoReembolso(true);
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setSalvandoReembolso(false);
+      alert("Sessão expirada. Atualize a página e faça login novamente.");
+      return;
+    }
+
     const payload = {
+      user_id: user.id,
       cartao_id: formReembolso.cartao_id,
       descricao: formReembolso.descricao.trim(),
       valor: parseFloat(String(formReembolso.valor).replace(",", ".")),
       categoria: "Reembolso",
       data_compra: formReembolso.data_compra,
-      fatura_mes: mes,
-      fatura_ano: ano,
     };
 
     const { error } = edicaoReembolsoId
@@ -1026,7 +1045,7 @@ export default function Dashboard() {
                       type="text"
                       value={formReceita.nome}
                       onChange={(e) => setFormReceita({ ...formReceita, nome: e.target.value })}
-                      placeholder="Nome (ex: Vendas de carros)"
+                      placeholder="Nome (ex: Receita Titular)"
                       className="text-sm"
                     />
                     <input
@@ -1053,16 +1072,16 @@ export default function Dashboard() {
                 ) : (
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{receitaTitular?.nome ?? "Vendas de carros"}</p>
+                      <p className="text-sm font-medium">{receitaTitular?.nome ?? "Receita Titular"}</p>
                       <p className="text-xs text-ink-soft">
-                        Receita fixa · Titular · fecha no ultimo dia do mes no Veloxis
+                        Receita fixa · Titular · fecha no ultimo dia do mes
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <p className="text-sm font-medium">{formatarMoeda(receitaTitular?.valor ?? 0)}</p>
                       <button
                         onClick={() =>
-                          iniciarEdicaoReceita(receitaTitular, "fixa_titular", "Vendas de carros")
+                          iniciarEdicaoReceita(receitaTitular, "fixa_titular", "Receita Titular")
                         }
                         className="text-xs text-ledger underline"
                       >
@@ -1081,7 +1100,7 @@ export default function Dashboard() {
                       type="text"
                       value={formReceita.nome}
                       onChange={(e) => setFormReceita({ ...formReceita, nome: e.target.value })}
-                      placeholder="Nome (ex: Salario da esposa)"
+                      placeholder="Nome (ex: Receita Outros)"
                       className="text-sm"
                     />
                     <input
@@ -1108,13 +1127,13 @@ export default function Dashboard() {
                 ) : (
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{receitaOutra?.nome ?? "Salario da esposa"}</p>
+                      <p className="text-sm font-medium">{receitaOutra?.nome ?? "Receita Outros"}</p>
                       <p className="text-xs text-ink-soft">Receita fixa · Outra · recebida todo dia 05</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <p className="text-sm font-medium">{formatarMoeda(receitaOutra?.valor ?? 0)}</p>
                       <button
-                        onClick={() => iniciarEdicaoReceita(receitaOutra, "fixa_outra", "Salario da esposa")}
+                        onClick={() => iniciarEdicaoReceita(receitaOutra, "fixa_outra", "Receita Outros")}
                         className="text-xs text-ledger underline"
                       >
                         editar
