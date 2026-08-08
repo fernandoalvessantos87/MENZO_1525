@@ -272,7 +272,12 @@ export default function Dashboard() {
 
       const lista = gastosCartaoData ?? [];
       setGastosCartaoDetalhado(lista);
-      const somaGastosCartao = lista.reduce((soma, g) => soma + Number(g.valor ?? 0), 0);
+      // Reembolso é dinheiro que passou pelo cartão mas volta pra você — por
+      // isso ele fica de fora do total do mês (e do saldo previsto), mesmo
+      // continuando dentro da fatura do cartão e do total por categoria.
+      const somaGastosCartao = lista
+        .filter((g) => g.categoria !== "Reembolso")
+        .reduce((soma, g) => soma + Number(g.valor ?? 0), 0);
       setTotalGastosCartao(somaGastosCartao);
     } else {
       setGastosCartaoDetalhado([]);
@@ -701,11 +706,10 @@ export default function Dashboard() {
     .sort((a, b) => b.valor - a.valor);
 
   // "Reembolso" é dinheiro que passou pelo cartão mas volta pra você (ex:
-  // emprestou o cartão pra alguém pagar depois). Ele conta no total da
-  // fatura do cartão (app/cartao), mas fica de fora do total de gastos
-  // do dashboard — por isso é retirado daqui antes de alimentar o
-  // gráfico de rosca, e mostrado à parte, só como informação.
-  const totaisParaGrafico = totaisPorCategoria.filter((d) => d.categoria !== "Reembolso");
+  // emprestou o cartão pra alguém pagar depois). Ele fica de fora do total
+  // do mês (calculado lá em cima), mas entra normalmente no total por
+  // categoria/gráfico — por isso não tem filtro aqui.
+  const totaisParaGrafico = totaisPorCategoria;
 
   // Itens de reembolso com os dados brutos (id, cartao_id) do gasto no
   // cartão, pra dar pra editar e excluir direto aqui no dashboard.
