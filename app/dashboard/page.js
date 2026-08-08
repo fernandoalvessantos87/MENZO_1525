@@ -13,6 +13,11 @@ import {
   slugify,
 } from "../../lib/contas";
 
+// Nome usado no rodízio (ordem_rotativo) que representa você, o titular.
+// Nos meses em que o responsável calculado for diferente desse nome, o
+// valor da despesa rotativa vira reembolso automático (ver mais abaixo).
+const TITULAR_ROTATIVO = "Fernando";
+
 const FORMA_PAGAMENTO_LABEL = {
   cartao_credito: "Cartão de crédito",
   cartao: "Cartão de crédito",
@@ -102,8 +107,14 @@ function BarraComparativa({ itens }) {
 function GraficoCategorias({ dados }) {
   const [categoriaAberta, setCategoriaAberta] = useState(null);
 
+  // Reembolso entra como item negativo (pra fazer o total bater com o
+  // Total do mês), mas uma fatia negativa não dá pra desenhar na rosca —
+  // por isso ele fica de fora do desenho e só aparece na lista abaixo.
+  const positivos = dados.filter((d) => d.valor > 0);
+  const negativos = dados.filter((d) => d.valor < 0);
   const total = dados.reduce((soma, d) => soma + d.valor, 0);
-  if (total <= 0) return null;
+  const totalPositivos = positivos.reduce((soma, d) => soma + d.valor, 0);
+  if (positivos.length === 0) return null;
 
   const raio = 60;
   const espessura = 22;
@@ -111,8 +122,8 @@ function GraficoCategorias({ dados }) {
   const circunferencia = 2 * Math.PI * raio;
 
   let acumulado = 0;
-  const fatias = dados.map((d, i) => {
-    const fracao = d.valor / total;
+  const fatias = positivos.map((d, i) => {
+    const fracao = d.valor / totalPositivos;
     const comprimento = fracao * circunferencia;
     const offset = circunferencia * 0.25 - acumulado;
     acumulado += comprimento;
@@ -195,6 +206,42 @@ function GraficoCategorias({ dados }) {
             </div>
           );
         })}
+
+        {negativos.map((d, i) => {
+          const aberta = categoriaAberta === d.categoria;
+          return (
+            <div key={`neg-${i}`}>
+              <button
+                type="button"
+                onClick={() => setCategoriaAberta((c) => (c === d.categoria ? null : d.categoria))}
+                className="w-full flex items-center gap-2 min-w-0 py-1 hover:bg-surface-soft rounded px-1 -mx-1 text-left transition-colors"
+              >
+                <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0 border border-dashed border-ink-soft" />
+                <span className="text-sm truncate flex-1 text-ink-soft">{d.categoria}</span>
+                <span className="text-sm font-medium shrink-0 w-20 text-right text-ink-soft">
+                  {formatarMoeda(d.valor)}
+                </span>
+                <span className="text-ink-soft shrink-0">
+                  <IconeChevron aberto={aberta} />
+                </span>
+              </button>
+
+              {aberta && (
+                <div className="ml-4 mb-2 border-l border-border pl-3 flex flex-col gap-1.5 py-1">
+                  {d.itens.map((item, j) => (
+                    <div key={j} className="flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <p className="text-ink break-words">{item.nome}</p>
+                        <p className="text-ink-soft">{item.subtitulo}</p>
+                      </div>
+                      <p className="text-ink-soft shrink-0">{formatarMoeda(item.valor)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -229,13 +276,17 @@ export default function Dashboard() {
   const [salvandoReceita, setSalvandoReceita] = useState(false);
 
   // --- Reembolso (adicionar/editar/excluir) ---
+  // Reembolso mora na tabela "reembolsos", separada de gastos_cartao —
+  // ele não tem cartão nenhum associado porque é só dinheiro que volta
+  // pra você (pix, dinheiro), e nunca deve entrar na fatura de nenhum
+  // cartão. Ver migracao_reembolsos.sql.
+  const [reembolsosManuais, setReembolsosManuais] = useState([]);
   const [formReembolsoAberto, setFormReembolsoAberto] = useState(false);
   const [edicaoReembolsoId, setEdicaoReembolsoId] = useState(null);
   const [formReembolso, setFormReembolso] = useState({
-    cartao_id: "",
     descricao: "",
     valor: "",
-    data_compra: new Date().toISOString().slice(0, 10),
+    data: new Date().toISOString().slice(0, 10),
   });
   const [salvandoReembolso, setSalvandoReembolso] = useState(false);
 
@@ -290,6 +341,15 @@ export default function Dashboard() {
       .order("criado_em", { ascending: true });
 
     setReceitas(receitasData ?? []);
+
+    const { data: reembolsosData } = await supabase
+      .from("reembolsos")
+      .select("*")
+      .eq("mes", mes)
+      .eq("ano", ano)
+      .order("data", { ascending: true });
+
+    setReembolsosManuais(reembolsosData ?? []);
 
     if (idsCartoes.length > 0) {
       const { data: gastosCartaoData } = await supabase
@@ -534,13 +594,11 @@ export default function Dashboard() {
   // --- Reembolso ---
 
   function abrirNovoReembolso() {
-    const primeiroCartaoId = Object.keys(cartoesPorId)[0] ?? "";
     setEdicaoReembolsoId(null);
     setFormReembolso({
-      cartao_id: primeiroCartaoId,
       descricao: "",
       valor: "",
-      data_compra: new Date().toISOString().slice(0, 10),
+      data: new Date().toISOString().slice(0, 10),
     });
     setFormReembolsoAberto(true);
   }
@@ -548,10 +606,9 @@ export default function Dashboard() {
   function iniciarEdicaoReembolso(item) {
     setEdicaoReembolsoId(item.id);
     setFormReembolso({
-      cartao_id: item.cartao_id,
       descricao: item.descricao ?? "",
       valor: String(item.valor ?? ""),
-      data_compra: item.data_compra ?? new Date().toISOString().slice(0, 10),
+      data: item.data ?? new Date().toISOString().slice(0, 10),
     });
     setFormReembolsoAberto(true);
   }
@@ -562,8 +619,8 @@ export default function Dashboard() {
   }
 
   async function salvarReembolso() {
-    if (!formReembolso.cartao_id || !formReembolso.descricao.trim() || !formReembolso.valor) {
-      alert("Escolha o cartão e preencha a descrição e o valor.");
+    if (!formReembolso.descricao.trim() || !formReembolso.valor) {
+      alert("Preencha a descrição e o valor.");
       return;
     }
     setSalvandoReembolso(true);
@@ -580,16 +637,16 @@ export default function Dashboard() {
 
     const payload = {
       user_id: user.id,
-      cartao_id: formReembolso.cartao_id,
       descricao: formReembolso.descricao.trim(),
       valor: parseFloat(String(formReembolso.valor).replace(",", ".")),
-      categoria: "Reembolso",
-      data_compra: formReembolso.data_compra,
+      data: formReembolso.data,
+      mes,
+      ano,
     };
 
     const { error } = edicaoReembolsoId
-      ? await supabase.from("gastos_cartao").update(payload).eq("id", edicaoReembolsoId)
-      : await supabase.from("gastos_cartao").insert(payload);
+      ? await supabase.from("reembolsos").update(payload).eq("id", edicaoReembolsoId)
+      : await supabase.from("reembolsos").insert(payload);
 
     setSalvandoReembolso(false);
 
@@ -604,6 +661,22 @@ export default function Dashboard() {
   }
 
   async function excluirReembolso(item) {
+    const confirmar = window.confirm(`Excluir o reembolso "${item.descricao}"?`);
+    if (!confirmar) return;
+
+    const { error } = await supabase.from("reembolsos").delete().eq("id", item.id);
+    if (error) {
+      alert("Erro ao excluir: " + error.message);
+      return;
+    }
+    carregarDados();
+  }
+
+  // Item antigo, lançado antes de existir a tabela "reembolsos" —
+  // continua vivendo dentro de gastos_cartao até você rodar a migração
+  // (ver migracao_reembolsos.sql). Só dá pra excluir aqui; pra editar,
+  // exclua e lance de novo pelo formulário novo.
+  async function excluirReembolsoAntigo(item) {
     const confirmar = window.confirm(`Excluir o reembolso "${item.descricao}"?`);
     if (!confirmar) return;
 
@@ -627,10 +700,43 @@ export default function Dashboard() {
   );
   const linhasVisiveis = [...linhasFixasRotativas, ...linhasVariaveisDoMes];
 
+  // Despesas rotativas (Spotify, IPTV etc.) continuam contando o valor
+  // cheio todo mês em "linhasFixasRotativas" — isso é correto quando é a
+  // vez do titular (TITULAR_ROTATIVO), mas nos meses em que é a vez de
+  // outra pessoa esse valor não é seu gasto. Em vez de você lançar um
+  // reembolso manual toda vez, geramos ele sozinho aqui a partir do
+  // rodízio (ordem_rotativo) já cadastrado em cada conta.
+  const reembolsosRotativos = linhasFixasRotativas
+    .filter((l) => l.conta.rotativo)
+    .map((l) => ({
+      conta: l.conta,
+      responsavel: calcularResponsavelRotativo(l.conta, mes, ano),
+    }))
+    .filter((r) => r.responsavel && r.responsavel !== TITULAR_ROTATIVO)
+    .map((r) => ({
+      id: `rotativo-${r.conta.id}`,
+      descricao: r.conta.nome,
+      valor: Number(r.conta.valor_esperado ?? 0),
+      data: null,
+      automatico: true,
+      responsavel: r.responsavel,
+    }));
+
+  const totalReembolsosManuais = reembolsosManuais.reduce(
+    (soma, r) => soma + Number(r.valor ?? 0),
+    0
+  );
+  const totalReembolsosRotativos = reembolsosRotativos.reduce(
+    (soma, r) => soma + Number(r.valor ?? 0),
+    0
+  );
+
   const total =
     linhasFixasRotativas.reduce((soma, l) => soma + Number(l.conta.valor_esperado ?? 0), 0) +
     linhasVariaveisDoMes.reduce((soma, l) => soma + Number(l.conta.valor_esperado ?? 0), 0) +
-    totalGastosCartao;
+    totalGastosCartao -
+    totalReembolsosManuais -
+    totalReembolsosRotativos;
 
   const contagem = {
     pago: linhasVisiveis.filter((l) => l.status === "pago").length,
@@ -719,31 +825,79 @@ export default function Dashboard() {
     });
   });
 
-  gastosCartaoDetalhado.forEach((g) => {
-    adicionarItem(g.categoria, {
-      nome: g.descricao,
-      valor: Number(g.valor ?? 0),
-      subtitulo:
-        new Date(g.data_compra + "T00:00:00").toLocaleDateString("pt-BR") +
-        (g.parcela_total > 1 ? ` · Parcela ${g.parcela_atual}/${g.parcela_total}` : " · Cartão"),
+  // Itens antigos ainda categorizados como "Reembolso" dentro da fatura do
+  // cartão (de antes da tabela "reembolsos" existir) não devem somar aqui —
+  // eles não são gasto seu. Depois de rodar a migração (ver
+  // migracao_reembolsos.sql) essa lista fica vazia.
+  const reembolsosAntigosNaFatura = gastosCartaoDetalhado.filter(
+    (g) => g.categoria === "Reembolso"
+  );
+  const totalReembolsosAntigos = reembolsosAntigosNaFatura.reduce(
+    (soma, g) => soma + Number(g.valor ?? 0),
+    0
+  );
+
+  gastosCartaoDetalhado
+    .filter((g) => g.categoria !== "Reembolso")
+    .forEach((g) => {
+      adicionarItem(g.categoria, {
+        nome: g.descricao,
+        valor: Number(g.valor ?? 0),
+        subtitulo:
+          new Date(g.data_compra + "T00:00:00").toLocaleDateString("pt-BR") +
+          (g.parcela_total > 1 ? ` · Parcela ${g.parcela_atual}/${g.parcela_total}` : " · Cartão"),
+      });
     });
-  });
 
   const totaisPorCategoria = Object.values(totaisPorCategoriaMap)
     .filter((d) => d.valor > 0)
     .map((d) => ({ ...d, itens: d.itens.sort((a, b) => b.valor - a.valor) }))
     .sort((a, b) => b.valor - a.valor);
 
-  // "Reembolso" é dinheiro que passou pelo cartão mas volta pra você (ex:
-  // emprestou o cartão pra alguém pagar depois). Ele fica de fora do total
-  // do mês (calculado lá em cima), mas entra normalmente no total por
-  // categoria/gráfico — por isso não tem filtro aqui.
-  const totaisParaGrafico = totaisPorCategoria;
+  // Reembolso não é gasto — por isso ele não vira mais uma fatia colorida
+  // do gráfico (uma fatia negativa não dá pra desenhar). Em vez disso,
+  // entra como um item negativo na lista, só pra fazer o total bater com
+  // o "Total do mês" do Dashboard, sem aparecer na rosca.
+  const totalReembolsosParaAbater =
+    totalReembolsosManuais + totalReembolsosRotativos + totalReembolsosAntigos;
+  const totaisParaGrafico =
+    totalReembolsosParaAbater > 0
+      ? [
+          ...totaisPorCategoria,
+          {
+            categoria: "Reembolso",
+            valor: -totalReembolsosParaAbater,
+            itens: [
+              ...reembolsosManuais.map((r) => ({
+                nome: r.descricao,
+                valor: -Number(r.valor ?? 0),
+                subtitulo: new Date(r.data + "T00:00:00").toLocaleDateString("pt-BR"),
+              })),
+              ...reembolsosRotativos.map((r) => ({
+                nome: r.descricao,
+                valor: -Number(r.valor ?? 0),
+                subtitulo: `Vez de ${r.responsavel}`,
+              })),
+              ...reembolsosAntigosNaFatura.map((g) => ({
+                nome: g.descricao,
+                valor: -Number(g.valor ?? 0),
+                subtitulo: new Date(g.data_compra + "T00:00:00").toLocaleDateString("pt-BR"),
+              })),
+            ],
+          },
+        ]
+      : totaisPorCategoria;
 
-  // Itens de reembolso com os dados brutos (id, cartao_id) do gasto no
-  // cartão, pra dar pra editar e excluir direto aqui no dashboard.
-  const reembolsos = gastosCartaoDetalhado.filter((g) => g.categoria === "Reembolso");
-  const totalReembolsos = reembolsos.reduce((soma, g) => soma + Number(g.valor ?? 0), 0);
+  // Lista combinada mostrada no bloco "Reembolso" do Dashboard: manuais
+  // (editáveis), das rotativas (automáticos, sem edição) e antigos (ainda
+  // dentro da fatura, editáveis do jeito antigo).
+  const reembolsos = [
+    ...reembolsosManuais.map((r) => ({ ...r, origem: "manual" })),
+    ...reembolsosRotativos.map((r) => ({ ...r, origem: "rotativo" })),
+    ...reembolsosAntigosNaFatura.map((g) => ({ ...g, origem: "antigo" })),
+  ].sort((a, b) => (a.descricao > b.descricao ? 1 : -1));
+
+  const totalReembolsos = totalReembolsosParaAbater;
 
   // Receitas do mês: fixa (titular), fixa (outra) e variáveis (afiliados
   // etc, podem ter vários itens no mesmo mês).
@@ -1305,7 +1459,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!carregando && Object.keys(cartoesPorId).length > 0 && (
+      {!carregando && (
         <div className="mb-6 bg-surface border border-dashed border-border rounded-lg overflow-hidden">
           <button
             type="button"
@@ -1337,24 +1491,39 @@ export default function Dashboard() {
                     <div className="min-w-0">
                       <p className="text-ink break-words">{item.descricao}</p>
                       <p className="text-[11px] text-ink-soft">
-                        {new Date(item.data_compra + "T00:00:00").toLocaleDateString("pt-BR")} ·{" "}
-                        {cartoesPorId[item.cartao_id]?.nome ?? "Cartão"}
+                        {item.origem === "rotativo"
+                          ? `Automático · vez de ${item.responsavel}`
+                          : item.origem === "antigo"
+                          ? new Date(item.data_compra + "T00:00:00").toLocaleDateString("pt-BR")
+                          : new Date(item.data + "T00:00:00").toLocaleDateString("pt-BR")}
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <p className="font-medium">{formatarMoeda(item.valor)}</p>
-                      <button
-                        onClick={() => iniciarEdicaoReembolso(item)}
-                        className="text-[11px] text-ledger underline"
-                      >
-                        editar
-                      </button>
-                      <button
-                        onClick={() => excluirReembolso(item)}
-                        className="text-[11px] text-stamp-red underline"
-                      >
-                        excluir
-                      </button>
+                      {item.origem === "manual" && (
+                        <>
+                          <button
+                            onClick={() => iniciarEdicaoReembolso(item)}
+                            className="text-[11px] text-ledger underline"
+                          >
+                            editar
+                          </button>
+                          <button
+                            onClick={() => excluirReembolso(item)}
+                            className="text-[11px] text-stamp-red underline"
+                          >
+                            excluir
+                          </button>
+                        </>
+                      )}
+                      {item.origem === "antigo" && (
+                        <button
+                          onClick={() => excluirReembolsoAntigo(item)}
+                          className="text-[11px] text-stamp-red underline"
+                        >
+                          excluir
+                        </button>
+                      )}
                     </div>
                   </div>
                 )
@@ -1362,17 +1531,6 @@ export default function Dashboard() {
 
               {formReembolsoAberto ? (
                 <div className="flex flex-col gap-2 border-t border-border pt-3">
-                  <select
-                    value={formReembolso.cartao_id}
-                    onChange={(e) => setFormReembolso({ ...formReembolso, cartao_id: e.target.value })}
-                    className="text-sm"
-                  >
-                    {Object.values(cartoesPorId).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </select>
                   <input
                     type="text"
                     value={formReembolso.descricao}
@@ -1391,8 +1549,8 @@ export default function Dashboard() {
                     />
                     <input
                       type="date"
-                      value={formReembolso.data_compra}
-                      onChange={(e) => setFormReembolso({ ...formReembolso, data_compra: e.target.value })}
+                      value={formReembolso.data}
+                      onChange={(e) => setFormReembolso({ ...formReembolso, data: e.target.value })}
                       className="w-1/2 text-sm"
                     />
                   </div>
