@@ -68,6 +68,35 @@ function IconeChevron({ aberto }) {
   );
 }
 
+// Barra comparativa simples (Receita x Total x Saldo) pro topo do
+// dashboard no notebook. Cada item vira uma barrinha proporcional ao
+// maior valor do grupo.
+function BarraComparativa({ itens }) {
+  const maiorValor = Math.max(...itens.map((i) => Math.abs(i.valor)), 1);
+
+  return (
+    <div className="flex flex-col gap-3">
+      {itens.map((item) => {
+        const largura = Math.min(100, (Math.abs(item.valor) / maiorValor) * 100);
+        return (
+          <div key={item.rotulo}>
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-ink-soft">{item.rotulo}</span>
+              <span style={{ color: item.cor }}>{formatarMoeda(item.valor)}</span>
+            </div>
+            <div className="bg-surface-soft rounded h-2">
+              <div
+                className="h-2 rounded"
+                style={{ width: `${largura}%`, backgroundColor: item.cor }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Gráfico de rosca (donut) em SVG puro. Cada categoria da legenda é
 // clicável: ao clicar, expande a lista dos itens que compõem aquele total.
 function GraficoCategorias({ dados }) {
@@ -936,7 +965,7 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
+    <main className="max-w-3xl lg:max-w-6xl mx-auto px-4 py-6 sm:py-8">
       <header className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-display text-2xl">Minhas Contas</p>
@@ -990,38 +1019,57 @@ export default function Dashboard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="bg-surface border border-border rounded-lg p-3">
-          <p className="text-xs text-ink-soft mb-1">Receita do mes</p>
-          <p className="font-display text-xl text-lime">{formatarMoeda(totalReceitas)}</p>
+      <div className="lg:grid lg:grid-cols-[1.1fr_1.3fr] lg:gap-4 lg:items-start mb-3">
+        <div>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-ink-soft mb-1">Receita do mes</p>
+              <p className="font-display text-xl text-lime">{formatarMoeda(totalReceitas)}</p>
+            </div>
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-ink-soft mb-1">Saldo previsto</p>
+              <p className={`font-display text-xl ${saldoPrevisto >= 0 ? "text-ledger" : "text-stamp-red"}`}>
+                {formatarMoeda(saldoPrevisto)}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3">
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-ink-soft mb-1">Total do mes</p>
+              <p className="font-display text-xl">{formatarMoeda(total)}</p>
+            </div>
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-ink-soft mb-1">Pagas</p>
+              <p className="font-display text-xl text-stamp-green">{contagem.pago}</p>
+            </div>
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-ink-soft mb-1">No prazo</p>
+              <p className="font-display text-xl text-stamp-amber">{contagem.no_prazo}</p>
+            </div>
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-ink-soft mb-1">Vencidas</p>
+              <p className="font-display text-xl text-stamp-red">{contagem.vencido}</p>
+            </div>
+          </div>
         </div>
-        <div className="bg-surface border border-border rounded-lg p-3">
-          <p className="text-xs text-ink-soft mb-1">Saldo previsto</p>
-          <p className={`font-display text-xl ${saldoPrevisto >= 0 ? "text-ledger" : "text-stamp-red"}`}>
-            {formatarMoeda(saldoPrevisto)}
-          </p>
+
+        <div className="hidden lg:block bg-surface border border-border rounded-lg p-4">
+          <p className="text-xs text-ink-soft mb-3">Receita x Total x Saldo</p>
+          <BarraComparativa
+            itens={[
+              { rotulo: "Receita", valor: totalReceitas, cor: "#BEE537" },
+              { rotulo: "Total do mes", valor: total, cor: "#EDEFEF" },
+              { rotulo: "Saldo previsto", valor: saldoPrevisto, cor: saldoPrevisto >= 0 ? "#2FC9BC" : "#FF6B5D" },
+            ]}
+          />
         </div>
       </div>
+      <div className="mb-6" />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <div className="bg-surface border border-border rounded-lg p-3">
-          <p className="text-xs text-ink-soft mb-1">Total do mes</p>
-          <p className="font-display text-xl">{formatarMoeda(total)}</p>
-        </div>
-        <div className="bg-surface border border-border rounded-lg p-3">
-          <p className="text-xs text-ink-soft mb-1">Pagas</p>
-          <p className="font-display text-xl text-stamp-green">{contagem.pago}</p>
-        </div>
-        <div className="bg-surface border border-border rounded-lg p-3">
-          <p className="text-xs text-ink-soft mb-1">No prazo</p>
-          <p className="font-display text-xl text-stamp-amber">{contagem.no_prazo}</p>
-        </div>
-        <div className="bg-surface border border-border rounded-lg p-3">
-          <p className="text-xs text-ink-soft mb-1">Vencidas</p>
-          <p className="font-display text-xl text-stamp-red">{contagem.vencido}</p>
-        </div>
-      </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
+      <div className="flex flex-col">
       {!carregando && (
         <div className="mb-6 bg-surface border border-border rounded-lg overflow-hidden">
           <button
@@ -1257,34 +1305,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!carregando && totaisParaGrafico.length > 0 && (
-        <div className="mb-6 bg-surface border border-border rounded-lg overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setGraficoAberto((a) => !a)}
-            aria-expanded={graficoAberto}
-            className="w-full flex items-center justify-between gap-3 px-4 py-4 text-left hover:bg-surface-soft transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-ink-soft">
-                <IconeChevron aberto={graficoAberto} />
-              </span>
-              <p className="font-display text-lg leading-tight">Gastos por categoria</p>
-            </div>
-            <p className="text-xs text-ink-soft">{totaisParaGrafico.length} categorias</p>
-          </button>
-
-          {graficoAberto && (
-            <div className="border-t border-border p-4">
-              <p className="text-[11px] text-ink-soft mb-3">
-                Clique numa categoria (ou na fatia do gráfico) pra ver o que tem dentro dela.
-              </p>
-              <GraficoCategorias dados={totaisParaGrafico} />
-            </div>
-          )}
-        </div>
-      )}
-
       {!carregando && Object.keys(cartoesPorId).length > 0 && (
         <div className="mb-6 bg-surface border border-dashed border-border rounded-lg overflow-hidden">
           <button
@@ -1398,6 +1418,38 @@ export default function Dashboard() {
           )}
         </div>
       )}
+      </div>
+
+      <div className="flex flex-col">
+      {!carregando && totaisParaGrafico.length > 0 && (
+        <div className="mb-6 bg-surface border border-border rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setGraficoAberto((a) => !a)}
+            aria-expanded={graficoAberto}
+            className="w-full flex items-center justify-between gap-3 px-4 py-4 text-left hover:bg-surface-soft transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-ink-soft">
+                <IconeChevron aberto={graficoAberto} />
+              </span>
+              <p className="font-display text-lg leading-tight">Gastos por categoria</p>
+            </div>
+            <p className="text-xs text-ink-soft">{totaisParaGrafico.length} categorias</p>
+          </button>
+
+          {graficoAberto && (
+            <div className="border-t border-border p-4">
+              <p className="text-[11px] text-ink-soft mb-3">
+                Clique numa categoria (ou na fatia do gráfico) pra ver o que tem dentro dela.
+              </p>
+              <GraficoCategorias dados={totaisParaGrafico} />
+            </div>
+          )}
+        </div>
+      )}
+      </div>
+      </div>
 
       {erroUpload && <p className="text-sm text-stamp-red mb-4">{erroUpload}</p>}
       {erroApagar && <p className="text-sm text-stamp-red mb-4">{erroApagar}</p>}
